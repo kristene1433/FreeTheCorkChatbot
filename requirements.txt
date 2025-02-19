@@ -1,0 +1,6 @@
+flask
+flask-cors
+openai==1.63.2
+python-dotenv
+gunicorn
+requests
