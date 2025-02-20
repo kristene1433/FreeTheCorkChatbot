@@ -23,7 +23,7 @@
       background: rgba(255, 255, 255, 0.9);
       padding: 20px;
       border-radius: 12px;
-      box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
     }
     #closeBtn {
       position: absolute;
@@ -86,7 +86,7 @@
       display: inline-block;
       max-width: 80%;
       animation: fadeIn 0.3s ease;
-      line-height: 1.4;
+      line-height: 1.6;
     }
     .userBubble {
       background: #e2d1c3;
@@ -110,12 +110,16 @@
   <script>
     function sendMessage() {
       const message = document.getElementById("user_input").value;
-      if(!message.trim()) return;
+      if (!message.trim()) return;
+      
+      // Append user's message bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
       userBubble.textContent = "🧑: " + message;
       document.getElementById("response").appendChild(userBubble);
       document.getElementById("user_input").value = "";
+      
+      // Send the message to the server
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -125,6 +129,7 @@
       .then(data => {
         const aiBubble = document.createElement("div");
         aiBubble.classList.add("bubble");
+        // Replace newline characters with <br> and convert numbered lists to bullets
         let formattedReply = data.reply
           .replace(/\n/g, "<br>")
           .replace(/(\d+)\.\s/g, "<br>• ");
@@ -139,6 +144,7 @@
         document.getElementById("response").appendChild(errorBubble);
       });
     }
+    
     function closeChat() {
       document.getElementById("chatContainer").style.display = "none";
     }
