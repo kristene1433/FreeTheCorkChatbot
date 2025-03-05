@@ -9,65 +9,49 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SHOPIFY_STORE_URL = os.getenv("SHOPIFY_STORE_URL")  # e.g., https://your-store.myshopify.com
-SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
 
 if not OPENAI_API_KEY:
     raise ValueError("❌ Missing OpenAI API Key. Set it in a .env file.")
-if not SHOPIFY_STORE_URL or not SHOPIFY_ACCESS_TOKEN:
-    raise ValueError("❌ Missing Shopify API credentials. Set SHOPIFY_STORE_URL and SHOPIFY_ACCESS_TOKEN in your .env file.")
 
 # Initialize Flask app with CORS enabled
 app = Flask(__name__, template_folder="templates")
-CORS(app)  # Allow Shopify to load chatbot in an iframe
+CORS(app)
 
-# Root Route (Prevents 404 Error)
+openai.api_key = OPENAI_API_KEY
+
+# Root Route
 @app.route("/")
 def home():
     return "✅ Welcome to the Free the Cork Wine Chatbot! Use /chat to talk to the AI or /chatbot for a web interface."
 
-def get_shopify_products():
-    """Fetches wine products from your Shopify store via the Admin API."""
-    endpoint = f"{SHOPIFY_STORE_URL}/admin/api/2023-10/products.json"
-    headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-    }
-    try:
-        response = requests.get(endpoint, headers=headers)
-        if response.status_code == 200:
-            products = response.json().get("products", [])
-            return products
-        else:
-            print("Error fetching products:", response.text)
-            return []
-    except Exception as e:
-        print("Exception fetching products:", e)
-        return []
-
-# AI Chatbot Function (with dynamic Shopify wine product info and enhanced prompt)
 def get_ai_response(user_message):
-    # Fetch wine products from Shopify
-    products = get_shopify_products()
-    if products:
-        # Get a list of product titles (assuming these are your wines)
-        product_titles = [p.get("title") for p in products if p.get("title")]
-        dynamic_info = "Current Inventory: " + ", ".join(product_titles)
-    else:
-        dynamic_info = "Current Inventory: (No products available)"
+    """
+    AI Chat function referencing your Next.js site (not Shopify).
+    You could statically list categories, product names, or dynamic fetch from your custom backend if you have one.
+    """
 
-    # Updated system prompt with explicit instructions for wine products
+    # Example static categories / products you'd like the agent to know about
+    # (For real usage, you might fetch data from your local DB or another source.)
+    product_info = [
+        "Red Wines: Josh Cellars Cabernet, Domaine Chevillon Pinot Noir, etc.",
+        "White Wines: Vincent Doucet Sancerre, etc.",
+        "Rosé & Blush: Chateau Gigery, Pink Moscato, etc.",
+        "Champagne & Sparkling: Billecart Salmon, Prosecco, etc.",
+        "Dessert & Fortified: Osborne Pedro Ximenez, Port, etc.",
+        "Accessories: Corkscrews, Decanters, Stoppers, Aerators.",
+    ]
+    # Convert list to a single string
+    dynamic_info = " | ".join(product_info)
+
     system_prompt = f"""
-    You are an AI assistant for a Shopify store called 'Free the Cork', a premier wine retailer.
-    Your role is to answer any questions about wine, including tasting notes, pairing suggestions, wine regions,
-    and detailed product information.
-    {dynamic_info}
+    You are an AI assistant for 'Free the Cork', a wine bar and online wine store built with Next.js. 
+    You have knowledge about different wines (red, white, rosé, sparkling, dessert) and also accessories. 
+    Current offerings: {dynamic_info}
 
     IMPORTANT:
-    - When a customer asks about wine products, reference only the products listed above.
-    - Do not invent or mention any product that is not part of the current inventory.
-    - When suggesting products, list only 2 or 3 suggestions unless the customer explicitly asks for more.
-    - For all other wine-related questions, provide detailed, knowledgeable, and complete responses.
+    - Answer questions about wine, tasting notes, regions, or accessories. 
+    - If asked for product suggestions, recommend from the categories above.
+    - Provide friendly, knowledgeable, and concise answers. 
     """
 
     try:
@@ -80,11 +64,11 @@ def get_ai_response(user_message):
             temperature=0.7,
             max_tokens=1000
         )
-        return response.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
         return f"Error processing request: {str(e)}"
 
-# Flask API Route for Chatbot (For API Calls)
+# Flask API Route for Chatbot (For API calls)
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
@@ -100,7 +84,7 @@ def chat():
 
     return jsonify({"reply": ai_response})
 
-# Web Interface for Chatbot (For Browser & Shopify)
+# Web Interface for Chatbot (For Browser)
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
     try:
