@@ -78,7 +78,7 @@ def get_ai_response(user_message):
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-4.5-preview",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
