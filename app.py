@@ -1,7 +1,7 @@
 import os
 import openai
 import datetime
-import requests
+import pdfplumber
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -9,49 +9,71 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 if not OPENAI_API_KEY:
-    raise ValueError("❌ Missing OpenAI API Key. Set it in a .env file.")
-
-# Initialize Flask app with CORS enabled
-app = Flask(__name__, template_folder="templates")
-CORS(app)
+    raise ValueError("❌ Missing OPENAI_API_KEY in .env")
 
 openai.api_key = OPENAI_API_KEY
 
-# Root Route
-@app.route("/")
-def home():
-    return "✅ Welcome to the Free the Cork Wine Chatbot! Use /chat to talk to the AI or /chatbot for a web interface."
+app = Flask(__name__, template_folder="templates")
+CORS(app)
+
+##################################
+# 1) Parse the PDF at startup
+##################################
+PDF_PATH = "MyMenu.pdf"  # Path to your PDF menu on the server
+
+def load_pdf_text(pdf_path):
+    """
+    Read all text from a small PDF using pdfplumber and return as a single string.
+    For large PDFs, you'd want a chunking or summarizing approach.
+    """
+    if not os.path.isfile(pdf_path):
+        print(f"PDF not found at {pdf_path}. Proceeding without menu text.")
+        return None
+    
+    text_chunks = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text_chunks.append(page.extract_text())
+        return "\n".join(text_chunks)
+    except Exception as e:
+        print("Error reading PDF:", e)
+        return None
+
+menu_pdf_text = load_pdf_text(PDF_PATH)
+if menu_pdf_text:
+    print("✅ PDF menu loaded successfully.")
+else:
+    print("⚠️ No PDF menu text loaded or PDF missing.")
+
+##################################
+# 2) AI Chat Logic
+##################################
 
 def get_ai_response(user_message):
     """
-    AI Chat function referencing your Next.js site (not Shopify).
-    You could statically list categories, product names, or dynamic fetch from your custom backend if you have one.
+    The system prompt includes knowledge from the PDF text 
+    (if it's not too large). This allows the AI to reference real menu items.
     """
-
-    # Example static categories / products you'd like the agent to know about
-    # (For real usage, you might fetch data from your local DB or another source.)
-    product_info = [
-        "Red Wines: Josh Cellars Cabernet, Domaine Chevillon Pinot Noir, etc.",
-        "White Wines: Vincent Doucet Sancerre, etc.",
-        "Rosé & Blush: Chateau Gigery, Pink Moscato, etc.",
-        "Champagne & Sparkling: Billecart Salmon, Prosecco, etc.",
-        "Dessert & Fortified: Osborne Pedro Ximenez, Port, etc.",
-        "Accessories: Corkscrews, Decanters, Stoppers, Aerators.",
-    ]
-    # Convert list to a single string
-    dynamic_info = " | ".join(product_info)
+    # 2A) Summarize or chunk the PDF text if too large
+    # For demo: we directly feed all text. For real usage, you may summarize.
+    pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
 
     system_prompt = f"""
-    You are an AI assistant for 'Free the Cork', a wine bar and online wine store built with Next.js. 
-    You have knowledge about different wines (red, white, rosé, sparkling, dessert) and also accessories. 
-    Current offerings: {dynamic_info}
+    You are a knowledgeable sommelier with extensive wine expertise:
+    - Regions, producers, wine scores, tasting notes, etc.
+    - You also have a real PDF menu for 'Free the Cork' with in-house offerings.
+    - Provide detailed info from the PDF text below if a user asks about it.
+
+    PDF MENU CONTENT:
+    {pdf_info}
 
     IMPORTANT:
-    - Answer questions about wine, tasting notes, regions, or accessories. 
-    - If asked for product suggestions, recommend from the categories above.
-    - Provide friendly, knowledgeable, and concise answers. 
+    1. If asked about the menu, use the PDF text to answer specifically.
+    2. Provide wine info, pairing suggestions, tasting notes, etc. from your broad knowledge.
+    3. If the user wants an overview of the menu, reference details from the PDF text.
+    4. Keep responses professional yet approachable.
     """
 
     try:
@@ -68,31 +90,35 @@ def get_ai_response(user_message):
     except Exception as e:
         return f"Error processing request: {str(e)}"
 
-# Flask API Route for Chatbot (For API calls)
+
+##################################
+# 3) Flask Routes
+##################################
+
+@app.route("/")
+def home():
+    return "✅ Welcome to the Free The Cork Sommelier Chatbot! Visit /chatbot or POST /chat"
+
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
     user_message = data.get("message", "")
     if not user_message:
-        return jsonify({"error": "❌ Message is required"}), 400
+        return jsonify({"error": "❌ 'message' field is required"}), 400
 
-    ai_response = get_ai_response(user_message)
+    ai_reply = get_ai_response(user_message)
 
-    # Log chat to a file
-    with open("chat_logs.txt", "a") as log_file:
-        log_file.write(f"{datetime.datetime.now()} - User: {user_message} | AI: {ai_response}\n")
+    # Log chat
+    with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
+        now = datetime.datetime.now().isoformat()
+        log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
 
-    return jsonify({"reply": ai_response})
+    return jsonify({"reply": ai_reply})
 
-# Web Interface for Chatbot (For Browser)
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
-    try:
-        return render_template("chat.html"), 200
-    except Exception as e:
-        return f"Error loading chatbot UI: {str(e)}", 500
+    return render_template("chat.html")
 
-# Run Flask app with Heroku's assigned PORT
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, host="0.0.0.0", port=port)
