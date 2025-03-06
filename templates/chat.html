@@ -1,9 +1,8 @@
-<!-- templates/chat.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title><h2>Free The Cork Virtual Sommelier & Guide</h2></title>
+  <title>Free the Cork AI Sommelier</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;600&display=swap" rel="stylesheet">
 
@@ -16,10 +15,21 @@
       color: #fff;
       text-align: center;
     }
+    /* Outer container, to appear above the page */
+    #chatOverlay {
+      position: fixed;
+      inset: 0; /* top:0; right:0; bottom:0; left:0 */
+      background: rgba(0, 0, 0, 0.3); /* slight dim behind chat */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
     #chatContainer {
       position: relative;
-      max-width: 600px;
-      margin: 50px auto;
+      width: 600px;
+      max-width: 90%;
+      margin: auto;
       background: rgba(255, 255, 255, 0.95);
       padding: 25px;
       border-radius: 15px;
@@ -70,18 +80,18 @@
     }
     #response {
       text-align: left;
-      max-height: 350px;
-      overflow-y: auto;
+      /* Removed max-height, removed overflow -> it auto-expands with messages */
       display: flex;
       flex-direction: column;
+      gap: 10px;
     }
     .bubble {
       background: #f4e4d7;
       border-radius: 8px;
       padding: 10px;
-      margin-bottom: 10px;
       max-width: 80%;
       animation: fadeIn 0.3s ease;
+      word-wrap: break-word;
     }
     .userBubble {
       background: #e2d1c3;
@@ -95,14 +105,17 @@
 </head>
 
 <body>
-  <div id="chatContainer">
-    <button id="closeBtn" onclick="closeChat()">✖</button>
-    <h2>Free the Cork AI Sommelier</h2>
-    <div id="inputRow">
-      <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
-      <button id="sendBtn" onclick="sendMessage()">Ask</button>
+  <!-- Fullscreen overlay -->
+  <div id="chatOverlay">
+    <div id="chatContainer">
+      <button id="closeBtn" onclick="closeChat()">✖</button>
+      <h2>Free the Cork AI Sommelier</h2>
+      <div id="inputRow">
+        <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
+        <button id="sendBtn" onclick="sendMessage()">Ask</button>
+      </div>
+      <div id="response"></div>
     </div>
-    <div id="response"></div>
   </div>
 
   <script>
@@ -139,7 +152,6 @@
         // Convert newlines in the reply to line breaks
         aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
-        responseDiv.scrollTop = responseDiv.scrollHeight;
       })
       .catch(err => {
         const errorBubble = document.createElement("div");
@@ -150,9 +162,15 @@
     }
 
     function closeChat() {
-      document.getElementById("chatContainer").style.display = "none";
+      // Hide or remove the overlay so user sees the page behind it
+      const overlay = document.getElementById("chatOverlay");
+      overlay.style.display = "none";
+      // Alternatively, remove it from the DOM entirely:
+      // overlay.parentNode.removeChild(overlay);
     }
   </script>
 </body>
 </html>
+
+
 
