@@ -15,8 +15,6 @@
       color: #fff;
       text-align: center;
     }
-
-    /* Fullscreen overlay behind the chat */
     #chatOverlay {
       position: fixed;
       inset: 0;
@@ -38,7 +36,7 @@
       color: #333;
       display: flex;
       flex-direction: column;
-      max-height: 80vh; /* keep within viewport */
+      max-height: 80vh;
     }
     #closeBtn {
       position: absolute;
@@ -56,6 +54,7 @@
       font-weight: 600;
     }
 
+    /* Voice on/off toggle container */
     #toggleContainer {
       display: flex;
       justify-content: center;
@@ -75,7 +74,6 @@
       font-size: 16px;
       outline: none;
     }
-    #micBtn,
     #sendBtn {
       background: #8e2d3f;
       color: #fff;
@@ -87,7 +85,6 @@
       transition: background 0.3s;
       font-size: 16px;
     }
-    #micBtn:hover,
     #sendBtn:hover {
       background: #ac4657;
     }
@@ -130,13 +127,12 @@
 
       <!-- Voice on/off toggle -->
       <div id="toggleContainer">
-        <label for="voiceToggle" style="margin-right:10px;">Voice On:</label>
+        <label for="voiceToggle" style="margin-right:10px;">Audio On:</label>
         <input type="checkbox" id="voiceToggle" checked />
       </div>
 
       <div id="inputRow">
         <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
-        <button id="micBtn" onclick="startListening()">🎤</button>
         <button id="sendBtn" onclick="sendMessage()">Ask</button>
       </div>
 
@@ -145,45 +141,34 @@
   </div>
 
   <script>
-    let voiceOn = true;
+    let audioOn = true;
 
+    // Toggle switch for TTS
     document.getElementById("voiceToggle").addEventListener('change', (e) => {
-      voiceOn = e.target.checked;
+      audioOn = e.target.checked;
     });
 
     function closeChat() {
-      document.getElementById("chatOverlay").style.display = "none";
+    // If you have any global or ongoing audio, stop it here:
+      if (window.currentAudio) {
+        window.currentAudio.pause();
+        window.currentAudio = null;
     }
 
-    function startListening() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("Speech recognition not supported in this browser.");
-        return;
-      }
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
-
-      recognition.onresult = function(event) {
-        const transcript = event.results[0][0].transcript;
-        document.getElementById("user_input").value = transcript;
-        sendMessage();
-      };
-      recognition.onerror = function(event) {
-        console.error("Speech recognition error:", event.error);
-      };
-      recognition.start();
+    // Remove the overlay from the DOM
+    const overlay = document.getElementById("chatOverlay");
+    if (overlay) {
+      overlay.remove();  // This deletes the entire overlay element
     }
+  }
+
 
     function sendMessage() {
       const message = document.getElementById("user_input").value.trim();
       if (!message) return;
 
       const responseDiv = document.getElementById("response");
-
-      // Show user bubble
+      // Show user's bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
       userBubble.textContent = "🧑: " + message;
@@ -192,7 +177,7 @@
       // Clear input
       document.getElementById("user_input").value = "";
 
-      // 1) Get AI text from /chat
+      // Step 1) Call /chat to get AI text
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,7 +185,7 @@
       })
       .then(res => {
         if (!res.ok) {
-          throw new Error('Network response was not OK: ' + res.status);
+          throw new Error('Network response not OK: ' + res.status);
         }
         return res.json();
       })
@@ -211,29 +196,31 @@
         aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
 
-        // 2) If voice is on, fetch /tts to get MP3 audio
-        if (voiceOn) {
+        // Step 2) If audio is ON, fetch /tts for MP3
+        if (audioOn) {
           return fetch("/tts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: data.reply })
           });
         } else {
-          return null; // skip TTS
+          return null;
         }
       })
       .then(res => {
-        if (!res) return;  // voice was off
+        if (!res) return; // user toggled audio off
         if (!res.ok) {
           throw new Error('TTS response not OK: ' + res.status);
         }
-        return res.blob(); // MP3 data
+        return res.blob();
       })
       .then(blob => {
         if (!blob) return;
         const audioURL = URL.createObjectURL(blob);
         const audio = new Audio(audioURL);
         audio.play();
+
+        // Scroll to bottom
         responseDiv.scrollTop = responseDiv.scrollHeight;
       })
       .catch(err => {

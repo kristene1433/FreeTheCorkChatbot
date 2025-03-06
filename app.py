@@ -12,33 +12,26 @@ import re
 ##############################################################################
 # 1) Load environment variables & config
 ##############################################################################
-load_dotenv()  # if you have a .env with OPENAI_API_KEY, etc.
+load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise ValueError("❌ Missing OPENAI_API_KEY in environment.")
-
-# If you store Google JSON credentials at a path, e.g. service_account.json,
-# set os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "service_account.json"
+    raise ValueError("❌ Missing OPENAI_API_KEY")
 
 openai.api_key = OPENAI_API_KEY
 
-##############################################################################
-# 2) Flask app setup
-##############################################################################
 app = Flask(__name__, template_folder="templates")
 CORS(app)
 
 ##############################################################################
-# 3) (Optional) Load a PDF menu. If you have no PDF, you can skip these lines.
+# 2) (Optional) PDF loading logic if you have a menu
 ##############################################################################
-PDF_PATH = "MyMenu.pdf"  # Path to your PDF menu file in the project root
+PDF_PATH = "MyMenu.pdf"  # or remove if you don't need a PDF
 
 def load_pdf_text(pdf_path):
     if not os.path.isfile(pdf_path):
         print(f"PDF not found at {pdf_path}. Proceeding without menu text.")
         return None
-
     text_chunks = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -58,14 +51,9 @@ else:
     print("⚠️ No PDF menu text loaded or PDF missing.")
 
 ##############################################################################
-# 4) AI Chat logic
+# 3) AI chat logic
 ##############################################################################
 def get_ai_response(user_message: str) -> str:
-    """
-    Provide a system prompt referencing the PDF text if available,
-    styled as a professional sommelier & site assistant.
-    Only give 2-3 suggestions at a time, etc.
-    """
     pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
 
     system_prompt = f"""
@@ -84,9 +72,8 @@ def get_ai_response(user_message: str) -> str:
        at a time, unless they explicitly ask for more.
     3. If asked about site navigation (e.g., "Where do I find X?"), mention the relevant page
        (Wine Bar, Wines, Accessories, Experiences, etc.).
-    4. If asked about the PDF menu, reference the text above but do NOT dump the entire menu;
-       give an overview or a couple highlights, unless the user insists on more detail.
-
+    4. If asked about the PDF menu, reference it but do NOT dump the entire menu.
+    
     Provide short, helpful answers. You are both a wine expert and a site guide.
     """
 
@@ -107,31 +94,18 @@ def get_ai_response(user_message: str) -> str:
         return error_msg
 
 ##############################################################################
-# 5) Google TTS with SSML for Natural Flow
+# 4) TTS with SSML for natural pacing
 ##############################################################################
 def build_ssml_with_breaks(text: str) -> str:
-    """
-    Convert plain text into SSML with short breaks between sentences
-    for more natural reading.
-    """
-    # We'll do a simple split on punctuation. This is naive, but sufficient as an example.
     sentences = re.split(r'([.?!])', text)
     ssml_parts = []
     for i in range(0, len(sentences), 2):
         part = sentences[i].strip()
-        if i+1 < len(sentences):
-            punc = sentences[i+1]  # e.g. '.' or '?'
-        else:
-            punc = ''
-
+        punc = sentences[i+1] if i+1 < len(sentences) else ''
         if part:
             combined = part + punc
-            # We wrap each sentence in <s> ... </s> and add a short break
             ssml_parts.append(f"<s>{combined.strip()}</s> <break time=\"500ms\"/>")
-
-    # Join them and wrap in <speak>...</speak>
-    ssml_final = "<speak>" + " ".join(ssml_parts) + "</speak>"
-    return ssml_final
+    return "<speak>" + " ".join(ssml_parts) + "</speak>"
 
 def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes:
     client = texttospeech.TextToSpeechClient()
@@ -143,7 +117,6 @@ def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3
     )
-
     response = client.synthesize_speech(
         input=synthesis_input,
         voice=voice,
@@ -152,9 +125,8 @@ def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes
     return response.audio_content
 
 ##############################################################################
-# 6) Routes
+# 5) Routes
 ##############################################################################
-
 @app.route("/")
 def home():
     return "✅ Welcome to the Free The Cork Sommelier Chatbot! Visit /chatbot or POST /chat"
@@ -168,7 +140,6 @@ def chat():
 
     ai_reply = get_ai_response(user_message)
 
-    # Log
     now = datetime.datetime.now().isoformat()
     with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
         log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
@@ -177,10 +148,6 @@ def chat():
 
 @app.route("/tts", methods=["POST"])
 def tts():
-    """
-    Expects JSON: { "text": "...some AI reply..." }
-    We'll parse that text, build SSML, call GCP TTS, and return MP3.
-    """
     data = request.get_json() or {}
     text = data.get("text", "").strip()
     if not text:
@@ -205,5 +172,4 @@ def chatbot():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    # Make sure you've installed google-cloud-texttospeech, openai, pdfplumber, etc.
     app.run(debug=False, host="0.0.0.0", port=port)
