@@ -2,9 +2,11 @@ import os
 import openai
 import datetime
 import pdfplumber
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, make_response
 from flask_cors import CORS
 from dotenv import load_dotenv
+from google.cloud import texttospeech  # <-- Google TTS library
+import io
 
 # ---------------------------------------
 # 1) Load environment variables & config
@@ -14,6 +16,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("❌ Missing OPENAI_API_KEY in .env")
 
+# Also ensure GOOGLE_APPLICATION_CREDENTIALS is set to your JSON key
 openai.api_key = OPENAI_API_KEY
 
 app = Flask(__name__, template_folder="templates")
@@ -88,8 +91,7 @@ def get_ai_response(user_message: str) -> str:
 
     try:
         response = openai.ChatCompletion.create(
-            # You can use gpt-4, gpt-3.5-turbo, or whichever model is available
-            model="gpt-4.5-preview",  
+            model="gpt-4.5-preview",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -104,40 +106,82 @@ def get_ai_response(user_message: str) -> str:
         return error_msg
 
 ##################################
-# 4) Flask Routes
+# 4) Google TTS function
+##################################
+
+def synthesize_speech_gcp(text: str, voice_name="en-US-Wavenet-F") -> bytes:
+    """
+    Use Google Cloud TTS to convert 'text' to speech (MP3).
+    voice_name can be found in GCP docs, e.g. en-GB-Wavenet-A, en-US-Wavenet-F, etc.
+    """
+    client = texttospeech.TextToSpeechClient()
+
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="en-US",
+        name=voice_name
+    )
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.MP3
+    )
+
+    response = client.synthesize_speech(
+        input=synthesis_input,
+        voice=voice,
+        audio_config=audio_config
+    )
+    return response.audio_content  # raw MP3 data
+
+##################################
+# 5) Flask Routes
 ##################################
 
 @app.route("/")
 def home():
-    # Minimal landing page text or redirect to the chatbot
     return "✅ Welcome to the Free The Cork Sommelier Chatbot! Visit /chatbot or POST /chat"
 
+# AI route
 @app.route("/chat", methods=["POST"])
 def chat():
-    # This endpoint handles AJAX POST requests from chat.html
     data = request.get_json() or {}
     user_message = data.get("message", "").strip()
-
     if not user_message:
         return jsonify({"error": "❌ 'message' field is required"}), 400
 
-    # Get AI's reply
     ai_reply = get_ai_response(user_message)
 
-    # Append to chat logs
     now = datetime.datetime.now().isoformat()
     with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
         log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
 
     return jsonify({"reply": ai_reply})
 
+# TTS route
+@app.route("/tts", methods=["POST"])
+def tts():
+    data = request.get_json() or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+
+    try:
+        audio_content = synthesize_speech_gcp(text)
+        # Return as MP3
+        return send_mp3(audio_content)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def send_mp3(audio_data: bytes):
+    # Convert bytes to a Flask response with audio/mpeg
+    response = make_response(audio_data)
+    response.headers.set('Content-Type', 'audio/mpeg')
+    response.headers.set('Content-Disposition', 'inline; filename="tts.mp3"')
+    return response
+
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
-    # Render the chat.html template from the 'templates' folder
     return render_template("chat.html")
 
 if __name__ == "__main__":
-    # Host set to 0.0.0.0 so it's accessible externally if on a server
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, host="0.0.0.0", port=port)
-

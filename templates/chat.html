@@ -37,7 +37,7 @@
       color: #333;
       display: flex;
       flex-direction: column;
-      max-height: 80vh; /* keep within viewport */
+      max-height: 80vh;
     }
     #closeBtn {
       position: absolute;
@@ -130,46 +130,13 @@
   </div>
 
   <script>
-    let chosenVoice = null;
-
-    // 1) Listen for voices to load, pick a better-sounding voice if available
-    speechSynthesis.onvoiceschanged = () => {
-      const allVoices = speechSynthesis.getVoices();
-      console.log("Available voices:", allVoices);
-
-      // Example: try to find "Google UK English Female" or fallback to first voice
-      const targetName = "Google UK English Female";
-      chosenVoice = allVoices.find(v => v.name === targetName) || allVoices[0];
-      console.log("Chosen voice:", chosenVoice);
-    };
-
-    // 2) Speak text with the chosen voice (or fallback)
-    function speakText(text) {
-      if (!window.speechSynthesis) return; // not supported
-      const utter = new SpeechSynthesisUtterance(text);
-
-      // If voices loaded, use the chosen one
-      if (chosenVoice) {
-        utter.voice = chosenVoice;
-        utter.lang = chosenVoice.lang;
-      } else {
-        // fallback
-        utter.lang = 'en-US';
-      }
-
-      utter.rate = 1.0;
-      utter.pitch = 1.0;
-      speechSynthesis.speak(utter);
-    }
-
-    // 3) Speech-to-Text function
+    // 1) Speech-to-Text for user input (unchanged)
     function startListening() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
         alert("Speech recognition not supported in this browser.");
         return;
       }
-
       const recognition = new SpeechRecognition();
       recognition.lang = 'en-US';
       recognition.interimResults = false;
@@ -178,18 +145,15 @@
       recognition.onresult = function(event) {
         const transcript = event.results[0][0].transcript;
         document.getElementById("user_input").value = transcript;
-        // Optionally auto-send
         sendMessage();
       };
-
       recognition.onerror = function(event) {
         console.error("Speech recognition error:", event.error);
       };
-
       recognition.start();
     }
 
-    // 4) Send message to the bot
+    // 2) Send message to the bot, then fetch TTS audio from Google
     function sendMessage() {
       const message = document.getElementById("user_input").value;
       if (!message.trim()) return;
@@ -204,7 +168,7 @@
       // Clear the input
       document.getElementById("user_input").value = "";
 
-      // Make the POST request to /chat
+      // 2A) First, get the AI text from /chat
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -217,16 +181,30 @@
         return res.json();
       })
       .then(data => {
-        // AI bubble
+        // Show AI bubble
         const aiBubble = document.createElement("div");
         aiBubble.classList.add("bubble");
         aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
 
-        // Read the bot's reply out loud
-        speakText(data.reply);
-
-        // Auto-scroll to bottom
+        // 2B) Now fetch TTS from /tts
+        return fetch("/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: data.reply })
+        });
+      })
+      .then(res => {
+        if (!res.ok) {
+          throw new Error('TTS response not OK: ' + res.status);
+        }
+        return res.blob(); // MP3 data
+      })
+      .then(blob => {
+        const audioURL = URL.createObjectURL(blob);
+        const audio = new Audio(audioURL);
+        audio.play();
+        // auto-scroll to bottom
         responseDiv.scrollTop = responseDiv.scrollHeight;
       })
       .catch(err => {
@@ -237,13 +215,10 @@
       });
     }
 
-    // 5) Close chat overlay
+    // 3) Close chat overlay
     function closeChat() {
       document.getElementById("chatOverlay").style.display = "none";
     }
   </script>
 </body>
 </html>
-
-
-
