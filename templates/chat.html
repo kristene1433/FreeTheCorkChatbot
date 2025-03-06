@@ -15,7 +15,8 @@
       color: #fff;
       text-align: center;
     }
-    /* Fullscreen overlay behind the chat */
+
+    /* Fullscreen overlay for the chat */
     #chatOverlay {
       position: fixed;
       inset: 0; /* top:0; right:0; bottom:0; left:0 */
@@ -37,7 +38,7 @@
       color: #333;
       display: flex;
       flex-direction: column;
-      max-height: 80vh; /* So the container doesn't exceed screen height */
+      max-height: 80vh; /* So it never overflows screen */
     }
     #closeBtn {
       position: absolute;
@@ -66,7 +67,7 @@
       font-size: 16px;
       outline: none;
     }
-    #sendBtn {
+    #micBtn, #sendBtn {
       background: #8e2d3f;
       color: #fff;
       border: none;
@@ -77,17 +78,19 @@
       transition: background 0.3s;
       font-size: 16px;
     }
-    #sendBtn:hover {
+    #micBtn:hover, #sendBtn:hover {
       background: #ac4657;
     }
 
-    /* This area will have one scroll bar for all chat messages */
+    /* The message container with single scrollbar */
     #response {
-      flex: 1; /* fill available vertical space */
-      overflow-y: auto; /* single scroll bar for entire chat messages */
-      padding-right: 5px; /* keep spacing so scroll bar isn't over text */
+      flex: 1; /* fill vertical space */
+      overflow-y: auto;
+      padding-right: 5px;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
     }
-
     .bubble {
       background: #f4e4d7;
       border-radius: 8px;
@@ -97,7 +100,7 @@
       animation: fadeIn 0.3s ease;
       word-wrap: break-word;
 
-      /* Make text a bit darker & bigger for readability */
+      /* Darker text, bigger */
       color: #2a2a2a;
       font-size: 16px;
       line-height: 1.5;
@@ -114,7 +117,6 @@
 </head>
 
 <body>
-  <!-- Fullscreen overlay -->
   <div id="chatOverlay">
     <div id="chatContainer">
       <button id="closeBtn" onclick="closeChat()">✖</button>
@@ -122,22 +124,62 @@
 
       <div id="inputRow">
         <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
+        <!-- Mic button for speech-to-text -->
+        <button id="micBtn" onclick="startListening()">🎤</button>
+        <!-- Send button for normal text input -->
         <button id="sendBtn" onclick="sendMessage()">Ask</button>
       </div>
 
-      <!-- Chat messages scroll area -->
       <div id="response"></div>
     </div>
   </div>
 
   <script>
+    // 1) Text-to-Speech function
+    function speakText(text) {
+      if (!window.speechSynthesis) return; // not supported
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = 'en-US';
+      utter.rate = 1.0;
+      utter.pitch = 1.0;
+      speechSynthesis.speak(utter);
+    }
+
+    // 2) Speech-to-Text function
+    function startListening() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Speech recognition not supported in this browser.");
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = function(event) {
+        const transcript = event.results[0][0].transcript;
+        // Place the recognized text into the input
+        document.getElementById("user_input").value = transcript;
+        // Optionally auto-send
+        sendMessage();
+      };
+
+      recognition.onerror = function(event) {
+        console.error("Speech recognition error:", event.error);
+      };
+
+      recognition.start();
+    }
+
     function sendMessage() {
       const message = document.getElementById("user_input").value;
       if (!message.trim()) return;
 
       const responseDiv = document.getElementById("response");
 
-      // Show the user's message in a bubble
+      // Show user's message bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
       userBubble.textContent = "🧑: " + message;
@@ -146,7 +188,7 @@
       // Clear the input
       document.getElementById("user_input").value = "";
 
-      // Make the POST request to /chat
+      // POST request to /chat
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -159,13 +201,16 @@
         return res.json();
       })
       .then(data => {
+        // AI bubble
         const aiBubble = document.createElement("div");
         aiBubble.classList.add("bubble");
-        // Convert newlines in the reply to line breaks
         aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
 
-        // Scroll to bottom so user sees the newest message
+        // TTS: read the AI reply out loud
+        speakText(data.reply);
+
+        // Auto-scroll to bottom
         responseDiv.scrollTop = responseDiv.scrollHeight;
       })
       .catch(err => {
@@ -177,9 +222,8 @@
     }
 
     function closeChat() {
-      // Hide or remove the overlay so the user sees the page behind it
-      const overlay = document.getElementById("chatOverlay");
-      overlay.style.display = "none";
+      // Hide or remove the overlay
+      document.getElementById("chatOverlay").style.display = "none";
     }
   </script>
 </body>
