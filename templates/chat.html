@@ -15,11 +15,10 @@
       color: #fff;
       text-align: center;
     }
-
-    /* Fullscreen overlay for the chat */
+    /* Fullscreen overlay */
     #chatOverlay {
       position: fixed;
-      inset: 0; /* top:0; right:0; bottom:0; left:0 */
+      inset: 0;
       background: rgba(0, 0, 0, 0.3);
       display: flex;
       justify-content: center;
@@ -38,7 +37,7 @@
       color: #333;
       display: flex;
       flex-direction: column;
-      max-height: 80vh; /* So it never overflows screen */
+      max-height: 80vh; /* keep within viewport */
     }
     #closeBtn {
       position: absolute;
@@ -67,7 +66,8 @@
       font-size: 16px;
       outline: none;
     }
-    #micBtn, #sendBtn {
+    #micBtn,
+    #sendBtn {
       background: #8e2d3f;
       color: #fff;
       border: none;
@@ -78,13 +78,12 @@
       transition: background 0.3s;
       font-size: 16px;
     }
-    #micBtn:hover, #sendBtn:hover {
+    #micBtn:hover,
+    #sendBtn:hover {
       background: #ac4657;
     }
-
-    /* The message container with single scrollbar */
     #response {
-      flex: 1; /* fill vertical space */
+      flex: 1;
       overflow-y: auto;
       padding-right: 5px;
       text-align: left;
@@ -99,8 +98,6 @@
       max-width: 80%;
       animation: fadeIn 0.3s ease;
       word-wrap: break-word;
-
-      /* Darker text, bigger */
       color: #2a2a2a;
       font-size: 16px;
       line-height: 1.5;
@@ -124,9 +121,7 @@
 
       <div id="inputRow">
         <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
-        <!-- Mic button for speech-to-text -->
         <button id="micBtn" onclick="startListening()">🎤</button>
-        <!-- Send button for normal text input -->
         <button id="sendBtn" onclick="sendMessage()">Ask</button>
       </div>
 
@@ -135,17 +130,39 @@
   </div>
 
   <script>
-    // 1) Text-to-Speech function
+    let chosenVoice = null;
+
+    // 1) Listen for voices to load, pick a better-sounding voice if available
+    speechSynthesis.onvoiceschanged = () => {
+      const allVoices = speechSynthesis.getVoices();
+      console.log("Available voices:", allVoices);
+
+      // Example: try to find "Google UK English Female" or fallback to first voice
+      const targetName = "Google UK English Female";
+      chosenVoice = allVoices.find(v => v.name === targetName) || allVoices[0];
+      console.log("Chosen voice:", chosenVoice);
+    };
+
+    // 2) Speak text with the chosen voice (or fallback)
     function speakText(text) {
       if (!window.speechSynthesis) return; // not supported
       const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'en-US';
+
+      // If voices loaded, use the chosen one
+      if (chosenVoice) {
+        utter.voice = chosenVoice;
+        utter.lang = chosenVoice.lang;
+      } else {
+        // fallback
+        utter.lang = 'en-US';
+      }
+
       utter.rate = 1.0;
       utter.pitch = 1.0;
       speechSynthesis.speak(utter);
     }
 
-    // 2) Speech-to-Text function
+    // 3) Speech-to-Text function
     function startListening() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -160,7 +177,6 @@
 
       recognition.onresult = function(event) {
         const transcript = event.results[0][0].transcript;
-        // Place the recognized text into the input
         document.getElementById("user_input").value = transcript;
         // Optionally auto-send
         sendMessage();
@@ -173,12 +189,12 @@
       recognition.start();
     }
 
+    // 4) Send message to the bot
     function sendMessage() {
       const message = document.getElementById("user_input").value;
       if (!message.trim()) return;
 
       const responseDiv = document.getElementById("response");
-
       // Show user's message bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
@@ -188,7 +204,7 @@
       // Clear the input
       document.getElementById("user_input").value = "";
 
-      // POST request to /chat
+      // Make the POST request to /chat
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -207,7 +223,7 @@
         aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
 
-        // TTS: read the AI reply out loud
+        // Read the bot's reply out loud
         speakText(data.reply);
 
         // Auto-scroll to bottom
@@ -221,8 +237,8 @@
       });
     }
 
+    // 5) Close chat overlay
     function closeChat() {
-      // Hide or remove the overlay
       document.getElementById("chatOverlay").style.display = "none";
     }
   </script>
