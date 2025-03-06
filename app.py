@@ -1,5 +1,3 @@
-# Updated app.py with minor improvements while maintaining the original structure
-
 import os
 import openai
 import datetime
@@ -25,7 +23,6 @@ CORS(app)
 # 2) Parse the PDF at startup
 ##################################
 PDF_PATH = "MyMenu.pdf"  # Path to your PDF menu on the server
-
 
 def load_pdf_text(pdf_path):
     """
@@ -61,30 +58,38 @@ else:
 
 def get_ai_response(user_message: str) -> str:
     """
-    Create a system prompt referencing the PDF text if available.
-    Then send the user's message to OpenAI.
+    Create a system prompt referencing the PDF text if available,
+    styled as a professional sommelier & site assistant who offers
+    just a couple suggestions at a time and helps navigate the site.
     """
     pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
 
     system_prompt = f"""
-    You are a knowledgeable sommelier with extensive wine expertise:
-    - Regions, producers, wine scores, tasting notes, etc.
-    - You also have a real PDF menu for 'Free the Cork' with in-house offerings.
-    - Provide detailed info from the PDF text below if a user asks about it.
+    You are a professional sommelier and website assistant for 'Free The Cork', a
+    stylish wine bar & online shop. You have extensive wine knowledge (regions,
+    producers, wine scores, tasting notes) AND you understand the layout of the website:
+      - Home, Wine Bar, Wines, Accessories, Experiences, Account, Menu PDF, etc.
+    You can guide customers around the site, telling them about each section if asked.
 
-    PDF MENU CONTENT:
+    You also have a PDF menu with in-house offerings:
     {pdf_info}
 
-    IMPORTANT:
-    1. If asked about the menu, use the PDF text to answer specifically.
-    2. Provide wine info, pairing suggestions, tasting notes, etc. from your broad knowledge.
-    3. If the user wants an overview of the menu, reference details from the PDF text.
-    4. Keep responses professional yet approachable.
+    IMPORTANT GUIDELINES:
+    1. Always keep responses friendly, refined, and approachable.
+    2. If a user requests wine or menu suggestions, only provide 2 or 3 recommendations
+       at a time, unless they explicitly ask for more.
+    3. If asked about site navigation (e.g., "Where do I find X?"), mention the relevant page
+       (Wine Bar, Wines, Accessories, Experiences, etc.).
+    4. If asked about the PDF menu, reference the text above but do NOT dump the entire menu;
+       give an overview or a couple highlights, unless the user insists on more detail.
+
+    Provide short, helpful answers. You are both a wine expert and a site guide.
     """
 
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4.5-preview",  # Keep the same model you specified
+            # You can use gpt-4, gpt-3.5-turbo, or whichever model is available
+            model="gpt-4.5-preview",  
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -94,7 +99,6 @@ def get_ai_response(user_message: str) -> str:
         )
         return response["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        # Return a user-friendly error if OpenAI call fails
         error_msg = f"Error processing request with OpenAI: {str(e)}"
         print(error_msg)
         return error_msg
@@ -106,10 +110,7 @@ def get_ai_response(user_message: str) -> str:
 @app.route("/")
 def home():
     # Minimal landing page text or redirect to the chatbot
-    # If you want to show the chat UI directly, use:
-    # return render_template("chat.html")
     return "✅ Welcome to the Free The Cork Sommelier Chatbot! Visit /chatbot or POST /chat"
-
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -130,14 +131,13 @@ def chat():
 
     return jsonify({"reply": ai_reply})
 
-
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
     # Render the chat.html template from the 'templates' folder
     return render_template("chat.html")
 
-
 if __name__ == "__main__":
     # Host set to 0.0.0.0 so it's accessible externally if on a server
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, host="0.0.0.0", port=port)
+
