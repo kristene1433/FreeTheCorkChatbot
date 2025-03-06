@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Free the Cork Wine Chatbot</title>
-  <!-- Optional: Google Font for a stylish look -->
+  <title>Free the Cork AI Sommelier</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;600&display=swap" rel="stylesheet">
   <style>
@@ -11,85 +10,80 @@
       margin: 0;
       padding: 0;
       font-family: 'Montserrat', sans-serif;
-      background: linear-gradient(135deg, #f3e5ab, #d4a373);
-      background-size: cover;
+      background: linear-gradient(135deg, #4c0018, #8e2d3f);
+      color: #fff;
       text-align: center;
-      color: #333;
     }
     #chatContainer {
       position: relative;
       max-width: 600px;
-      margin: 40px auto;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+      margin: 50px auto;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+      color: #333;
+      display: flex;
+      flex-direction: column;
     }
     #closeBtn {
       position: absolute;
       top: 10px;
-      right: 10px;
+      right: 15px;
       background: none;
       border: none;
-      font-size: 20px;
-      color: #333;
+      font-size: 24px;
+      color: #8e2d3f;
       cursor: pointer;
     }
-    #closeBtn:hover {
-      color: #8B0000;
-    }
     h2 {
-      margin-top: 0;
+      color: #8e2d3f;
       margin-bottom: 20px;
-      color: #8B0000;
       font-weight: 600;
     }
     #inputRow {
       display: flex;
-      align-items: center;
-      justify-content: center;
       margin-bottom: 20px;
     }
     #user_input {
-      width: 70%;
+      flex: 1;
       padding: 10px;
-      font-size: 16px;
+      border-radius: 6px;
       border: 1px solid #ccc;
-      border-radius: 4px;
-      margin-right: 5px;
+      font-size: 16px;
       outline: none;
     }
     #sendBtn {
-      background: #8B0000;
+      background: #8e2d3f;
       color: #fff;
       border: none;
-      padding: 10px 15px;
-      font-size: 16px;
-      border-radius: 4px;
+      padding: 10px 20px;
+      border-radius: 6px;
       cursor: pointer;
-      transition: background 0.3s ease;
+      margin-left: 10px;
+      transition: background 0.3s;
     }
     #sendBtn:hover {
-      background: #a52a2a;
+      background: #ac4657;
     }
     #response {
       text-align: left;
-      margin-top: 20px;
-      max-height: 300px;
+      max-height: 350px;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
     }
     .bubble {
-      background: #f9f3e4;
-      border-radius: 10px;
+      background: #f4e4d7;
+      border-radius: 8px;
       padding: 10px;
       margin-bottom: 10px;
-      display: inline-block;
       max-width: 80%;
       animation: fadeIn 0.3s ease;
-      line-height: 1.6;
     }
     .userBubble {
       background: #e2d1c3;
+      align-self: flex-end;
     }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(10px); }
@@ -100,51 +94,49 @@
 <body>
   <div id="chatContainer">
     <button id="closeBtn" onclick="closeChat()">✖</button>
-    <h2>Free the Cork Wine Chatbot</h2>
+    <h2>Free the Cork AI Sommelier</h2>
     <div id="inputRow">
-      <input id="user_input" type="text" placeholder="Ask me about wine..." />
-      <button id="sendBtn" onclick="sendMessage()">Send</button>
+      <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
+      <button id="sendBtn" onclick="sendMessage()">Ask</button>
     </div>
     <div id="response"></div>
   </div>
+
   <script>
     function sendMessage() {
       const message = document.getElementById("user_input").value;
       if (!message.trim()) return;
-      
-      // Append user's message bubble
+
+      const responseDiv = document.getElementById("response");
+
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
       userBubble.textContent = "🧑: " + message;
-      document.getElementById("response").appendChild(userBubble);
+      responseDiv.appendChild(userBubble);
+
       document.getElementById("user_input").value = "";
-      
-      // Send the message to the server
+
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: message })
+        body: JSON.stringify({ message })
       })
-      .then(response => response.json())
+      .then(res => res.json())
       .then(data => {
         const aiBubble = document.createElement("div");
-        aiBubble.classList.add("bubble");
-        // Replace newline characters with <br> and convert numbered lists to bullets
-        let formattedReply = data.reply
-          .replace(/\n/g, "<br>")
-          .replace(/(\d+)\.\s/g, "<br>• ");
-        aiBubble.innerHTML = "🍷: " + formattedReply;
-        document.getElementById("response").appendChild(aiBubble);
-        document.getElementById("response").scrollTop = document.getElementById("response").scrollHeight;
+        aiBubble.className = "bubble";
+        aiBubble.innerHTML = "🍷: " + data.reply.replace(/\n/g, "<br>");
+        responseDiv.appendChild(aiBubble);
+        responseDiv.scrollTop = responseDiv.scrollHeight;
       })
-      .catch(error => {
+      .catch(err => {
         const errorBubble = document.createElement("div");
-        errorBubble.classList.add("bubble");
-        errorBubble.textContent = "Error: " + error;
-        document.getElementById("response").appendChild(errorBubble);
+        errorBubble.className = "bubble";
+        errorBubble.textContent = "Error: " + err;
+        responseDiv.appendChild(errorBubble);
       });
     }
-    
+
     function closeChat() {
       document.getElementById("chatContainer").style.display = "none";
     }
