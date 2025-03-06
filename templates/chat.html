@@ -1,3 +1,4 @@
+<!-- templates/chat.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,6 +6,7 @@
   <title>Free the Cork AI Sommelier</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;600&display=swap" rel="stylesheet">
+
   <style>
     body {
       margin: 0;
@@ -91,6 +93,7 @@
     }
   </style>
 </head>
+
 <body>
   <div id="chatContainer">
     <button id="closeBtn" onclick="closeChat()">✖</button>
@@ -109,29 +112,38 @@
 
       const responseDiv = document.getElementById("response");
 
+      // Show the user's message in a bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
       userBubble.textContent = "🧑: " + message;
       responseDiv.appendChild(userBubble);
 
+      // Clear the input
       document.getElementById("user_input").value = "";
 
+      // Make the POST request to /chat
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message })
       })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) {
+          throw new Error('Network response was not OK: ' + res.status);
+        }
+        return res.json();
+      })
       .then(data => {
         const aiBubble = document.createElement("div");
-        aiBubble.className = "bubble";
-        aiBubble.innerHTML = "🍷: " + data.reply.replace(/\n/g, "<br>");
+        aiBubble.classList.add("bubble");
+        // Convert newlines in the reply to line breaks
+        aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
         responseDiv.scrollTop = responseDiv.scrollHeight;
       })
       .catch(err => {
         const errorBubble = document.createElement("div");
-        errorBubble.className = "bubble";
+        errorBubble.classList.add("bubble");
         errorBubble.textContent = "Error: " + err;
         responseDiv.appendChild(errorBubble);
       });
@@ -143,3 +155,4 @@
   </script>
 </body>
 </html>
+
