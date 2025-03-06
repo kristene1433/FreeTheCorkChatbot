@@ -5,33 +5,36 @@ import pdfplumber
 from flask import Flask, request, jsonify, render_template, make_response
 from flask_cors import CORS
 from dotenv import load_dotenv
-from google.cloud import texttospeech  # <-- Google TTS library
+from google.cloud import texttospeech
 import io
+import re
 
-# ---------------------------------------
+##############################################################################
 # 1) Load environment variables & config
-# ---------------------------------------
-load_dotenv()
+##############################################################################
+load_dotenv()  # if you have a .env with OPENAI_API_KEY, etc.
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise ValueError("❌ Missing OPENAI_API_KEY in .env")
+    raise ValueError("❌ Missing OPENAI_API_KEY in environment.")
 
-# Also ensure GOOGLE_APPLICATION_CREDENTIALS is set to your JSON key
+# If you store Google JSON credentials at a path, e.g. service_account.json,
+# set os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "service_account.json"
+
 openai.api_key = OPENAI_API_KEY
 
+##############################################################################
+# 2) Flask app setup
+##############################################################################
 app = Flask(__name__, template_folder="templates")
 CORS(app)
 
-##################################
-# 2) Parse the PDF at startup
-##################################
-PDF_PATH = "MyMenu.pdf"  # Path to your PDF menu on the server
+##############################################################################
+# 3) (Optional) Load a PDF menu. If you have no PDF, you can skip these lines.
+##############################################################################
+PDF_PATH = "MyMenu.pdf"  # Path to your PDF menu file in the project root
 
 def load_pdf_text(pdf_path):
-    """
-    Read all text from a small PDF using pdfplumber and return it as a single string.
-    For large PDFs, you'd want a chunking or summarizing approach.
-    """
     if not os.path.isfile(pdf_path):
         print(f"PDF not found at {pdf_path}. Proceeding without menu text.")
         return None
@@ -43,8 +46,7 @@ def load_pdf_text(pdf_path):
                 extracted = page.extract_text()
                 if extracted:
                     text_chunks.append(extracted)
-        full_text = "\n".join(text_chunks)
-        return full_text.strip()
+        return "\n".join(text_chunks).strip()
     except Exception as e:
         print("Error reading PDF:", e)
         return None
@@ -55,15 +57,14 @@ if menu_pdf_text:
 else:
     print("⚠️ No PDF menu text loaded or PDF missing.")
 
-##################################
-# 3) AI Chat Logic
-##################################
-
+##############################################################################
+# 4) AI Chat logic
+##############################################################################
 def get_ai_response(user_message: str) -> str:
     """
-    Create a system prompt referencing the PDF text if available,
-    styled as a professional sommelier & site assistant who offers
-    just a couple suggestions at a time and helps navigate the site.
+    Provide a system prompt referencing the PDF text if available,
+    styled as a professional sommelier & site assistant.
+    Only give 2-3 suggestions at a time, etc.
     """
     pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
 
@@ -105,18 +106,36 @@ def get_ai_response(user_message: str) -> str:
         print(error_msg)
         return error_msg
 
-##################################
-# 4) Google TTS function
-##################################
+##############################################################################
+# 5) Google TTS with SSML for Natural Flow
+##############################################################################
+def build_ssml_with_breaks(text: str) -> str:
+    """
+    Convert plain text into SSML with short breaks between sentences
+    for more natural reading.
+    """
+    # We'll do a simple split on punctuation. This is naive, but sufficient as an example.
+    sentences = re.split(r'([.?!])', text)
+    ssml_parts = []
+    for i in range(0, len(sentences), 2):
+        part = sentences[i].strip()
+        if i+1 < len(sentences):
+            punc = sentences[i+1]  # e.g. '.' or '?'
+        else:
+            punc = ''
 
-def synthesize_speech_gcp(text: str, voice_name="en-US-Wavenet-F") -> bytes:
-    """
-    Use Google Cloud TTS to convert 'text' to speech (MP3).
-    voice_name can be found in GCP docs, e.g. en-GB-Wavenet-A, en-US-Wavenet-F, etc.
-    """
+        if part:
+            combined = part + punc
+            # We wrap each sentence in <s> ... </s> and add a short break
+            ssml_parts.append(f"<s>{combined.strip()}</s> <break time=\"500ms\"/>")
+
+    # Join them and wrap in <speak>...</speak>
+    ssml_final = "<speak>" + " ".join(ssml_parts) + "</speak>"
+    return ssml_final
+
+def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes:
     client = texttospeech.TextToSpeechClient()
-
-    synthesis_input = texttospeech.SynthesisInput(text=text)
+    synthesis_input = texttospeech.SynthesisInput(ssml=ssml)
     voice = texttospeech.VoiceSelectionParams(
         language_code="en-US",
         name=voice_name
@@ -130,17 +149,16 @@ def synthesize_speech_gcp(text: str, voice_name="en-US-Wavenet-F") -> bytes:
         voice=voice,
         audio_config=audio_config
     )
-    return response.audio_content  # raw MP3 data
+    return response.audio_content
 
-##################################
-# 5) Flask Routes
-##################################
+##############################################################################
+# 6) Routes
+##############################################################################
 
 @app.route("/")
 def home():
     return "✅ Welcome to the Free The Cork Sommelier Chatbot! Visit /chatbot or POST /chat"
 
-# AI route
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json() or {}
@@ -150,33 +168,36 @@ def chat():
 
     ai_reply = get_ai_response(user_message)
 
+    # Log
     now = datetime.datetime.now().isoformat()
     with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
         log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
 
     return jsonify({"reply": ai_reply})
 
-# TTS route
 @app.route("/tts", methods=["POST"])
 def tts():
+    """
+    Expects JSON: { "text": "...some AI reply..." }
+    We'll parse that text, build SSML, call GCP TTS, and return MP3.
+    """
     data = request.get_json() or {}
     text = data.get("text", "").strip()
     if not text:
         return jsonify({"error": "No text provided"}), 400
 
     try:
-        audio_content = synthesize_speech_gcp(text)
-        # Return as MP3
+        ssml = build_ssml_with_breaks(text)
+        audio_content = synthesize_speech_gcp_ssml(ssml)
         return send_mp3(audio_content)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 def send_mp3(audio_data: bytes):
-    # Convert bytes to a Flask response with audio/mpeg
-    response = make_response(audio_data)
-    response.headers.set('Content-Type', 'audio/mpeg')
-    response.headers.set('Content-Disposition', 'inline; filename="tts.mp3"')
-    return response
+    resp = make_response(audio_data)
+    resp.headers.set('Content-Type', 'audio/mpeg')
+    resp.headers.set('Content-Disposition', 'inline; filename="tts.mp3"')
+    return resp
 
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
@@ -184,4 +205,5 @@ def chatbot():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    # Make sure you've installed google-cloud-texttospeech, openai, pdfplumber, etc.
     app.run(debug=False, host="0.0.0.0", port=port)

@@ -15,7 +15,8 @@
       color: #fff;
       text-align: center;
     }
-    /* Fullscreen overlay */
+
+    /* Fullscreen overlay behind the chat */
     #chatOverlay {
       position: fixed;
       inset: 0;
@@ -37,7 +38,7 @@
       color: #333;
       display: flex;
       flex-direction: column;
-      max-height: 80vh;
+      max-height: 80vh; /* keep within viewport */
     }
     #closeBtn {
       position: absolute;
@@ -54,9 +55,17 @@
       margin-bottom: 20px;
       font-weight: 600;
     }
+
+    #toggleContainer {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
     #inputRow {
       display: flex;
-      margin-bottom: 20px;
+      margin-bottom: 10px;
     }
     #user_input {
       flex: 1;
@@ -119,6 +128,12 @@
       <button id="closeBtn" onclick="closeChat()">✖</button>
       <h2>Free the Cork AI Sommelier</h2>
 
+      <!-- Voice on/off toggle -->
+      <div id="toggleContainer">
+        <label for="voiceToggle" style="margin-right:10px;">Voice On:</label>
+        <input type="checkbox" id="voiceToggle" checked />
+      </div>
+
       <div id="inputRow">
         <input id="user_input" type="text" placeholder="Ask your Sommelier..." />
         <button id="micBtn" onclick="startListening()">🎤</button>
@@ -130,7 +145,16 @@
   </div>
 
   <script>
-    // 1) Speech-to-Text for user input (unchanged)
+    let voiceOn = true;
+
+    document.getElementById("voiceToggle").addEventListener('change', (e) => {
+      voiceOn = e.target.checked;
+    });
+
+    function closeChat() {
+      document.getElementById("chatOverlay").style.display = "none";
+    }
+
     function startListening() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -153,22 +177,22 @@
       recognition.start();
     }
 
-    // 2) Send message to the bot, then fetch TTS audio from Google
     function sendMessage() {
-      const message = document.getElementById("user_input").value;
-      if (!message.trim()) return;
+      const message = document.getElementById("user_input").value.trim();
+      if (!message) return;
 
       const responseDiv = document.getElementById("response");
-      // Show user's message bubble
+
+      // Show user bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
       userBubble.textContent = "🧑: " + message;
       responseDiv.appendChild(userBubble);
 
-      // Clear the input
+      // Clear input
       document.getElementById("user_input").value = "";
 
-      // 2A) First, get the AI text from /chat
+      // 1) Get AI text from /chat
       fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -187,37 +211,40 @@
         aiBubble.innerHTML = "🍷: " + data.reply.replace(/\\n/g, "<br>");
         responseDiv.appendChild(aiBubble);
 
-        // 2B) Now fetch TTS from /tts
-        return fetch("/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: data.reply })
-        });
+        // 2) If voice is on, fetch /tts to get MP3 audio
+        if (voiceOn) {
+          return fetch("/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: data.reply })
+          });
+        } else {
+          return null; // skip TTS
+        }
       })
       .then(res => {
+        if (!res) return;  // voice was off
         if (!res.ok) {
           throw new Error('TTS response not OK: ' + res.status);
         }
         return res.blob(); // MP3 data
       })
       .then(blob => {
+        if (!blob) return;
         const audioURL = URL.createObjectURL(blob);
         const audio = new Audio(audioURL);
         audio.play();
-        // auto-scroll to bottom
         responseDiv.scrollTop = responseDiv.scrollHeight;
       })
       .catch(err => {
+        console.error(err);
         const errorBubble = document.createElement("div");
         errorBubble.classList.add("bubble");
         errorBubble.textContent = "Error: " + err;
         responseDiv.appendChild(errorBubble);
       });
-    }
 
-    // 3) Close chat overlay
-    function closeChat() {
-      document.getElementById("chatOverlay").style.display = "none";
+      responseDiv.scrollTop = responseDiv.scrollHeight;
     }
   </script>
 </body>
