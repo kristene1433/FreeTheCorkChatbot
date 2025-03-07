@@ -38,30 +38,17 @@
       flex-direction: column;
       max-height: 80vh;
     }
-    #closeBtn {
-      position: absolute;
-      top: 10px;
-      right: 15px;
-      background: none;
-      border: none;
-      font-size: 24px;
-      color: #8e2d3f;
-      cursor: pointer;
-    }
     h2 {
       color: #8e2d3f;
       margin-bottom: 20px;
       font-weight: 600;
     }
-
-    /* Voice on/off toggle container */
     #toggleContainer {
       display: flex;
       justify-content: center;
       align-items: center;
       margin-bottom: 20px;
     }
-
     #inputRow {
       display: flex;
       margin-bottom: 10px;
@@ -122,7 +109,7 @@
 <body>
   <div id="chatOverlay">
     <div id="chatContainer">
-      <button id="closeBtn" onclick="closeChat()">✖</button>
+      <!-- No close button here -->
       <h2>Free the Cork AI Sommelier</h2>
 
       <!-- Voice on/off toggle -->
@@ -141,33 +128,27 @@
   </div>
 
   <script>
+    // If "audioOn" = true, we fetch TTS and play it. If false, no TTS.
     let audioOn = true;
+    // Keep track of the currently playing Audio object so we can stop it:
+    window.currentAudio = null;
 
     // Toggle switch for TTS
     document.getElementById("voiceToggle").addEventListener('change', (e) => {
       audioOn = e.target.checked;
-    });
-
-    function closeChat() {
-    // If you have any global or ongoing audio, stop it here:
-      if (window.currentAudio) {
+      // If user just turned OFF audio, stop whatever is playing:
+      if (!audioOn && window.currentAudio) {
         window.currentAudio.pause();
         window.currentAudio = null;
-    }
-
-    // Remove the overlay from the DOM
-    const overlay = document.getElementById("chatOverlay");
-    if (overlay) {
-      overlay.remove();  // This deletes the entire overlay element
-    }
-  }
-
+      }
+    });
 
     function sendMessage() {
       const message = document.getElementById("user_input").value.trim();
       if (!message) return;
 
       const responseDiv = document.getElementById("response");
+
       // Show user's bubble
       const userBubble = document.createElement("div");
       userBubble.classList.add("bubble", "userBubble");
@@ -204,11 +185,12 @@
             body: JSON.stringify({ text: data.reply })
           });
         } else {
+          // If audio is off, do nothing here
           return null;
         }
       })
       .then(res => {
-        if (!res) return; // user toggled audio off
+        if (!res) return; // Audio was off at fetch time
         if (!res.ok) {
           throw new Error('TTS response not OK: ' + res.status);
         }
@@ -216,12 +198,19 @@
       })
       .then(blob => {
         if (!blob) return;
+        
+        // If user toggled OFF while we were waiting for TTS,
+        // skip playing
+        if (!audioOn) return;
+
+        // Create an Audio object and play it
         const audioURL = URL.createObjectURL(blob);
         const audio = new Audio(audioURL);
+        window.currentAudio = audio; // track globally
         audio.play();
 
-        // Scroll to bottom
-        responseDiv.scrollTop = responseDiv.scrollHeight;
+        // If they turn audio off mid-play, the event listener
+        // will .pause() this in real time.
       })
       .catch(err => {
         console.error(err);
@@ -231,6 +220,7 @@
         responseDiv.appendChild(errorBubble);
       });
 
+      // Scroll to bottom
       responseDiv.scrollTop = responseDiv.scrollHeight;
     }
   </script>

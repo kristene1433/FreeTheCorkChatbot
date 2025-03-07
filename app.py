@@ -24,9 +24,9 @@ app = Flask(__name__, template_folder="templates")
 CORS(app)
 
 ##############################################################################
-# 2) (Optional) PDF loading logic if you have a menu
+# 2) PDF loading logic (if you have a PDF menu)
 ##############################################################################
-PDF_PATH = "MyMenu.pdf"  # or remove if you don't need a PDF
+PDF_PATH = "MyMenu.pdf"
 
 def load_pdf_text(pdf_path):
     if not os.path.isfile(pdf_path):
@@ -70,8 +70,7 @@ def get_ai_response(user_message: str) -> str:
     1. Always keep responses friendly, refined, and approachable.
     2. If a user requests wine or menu suggestions, only provide 2 or 3 recommendations
        at a time, unless they explicitly ask for more.
-    3. If asked about site navigation (e.g., "Where do I find X?"), mention the relevant page
-       (Wine Bar, Wines, Accessories, Experiences, etc.).
+    3. If asked about site navigation (e.g., "Where do I find X?"), mention the relevant page.
     4. If asked about the PDF menu, reference it but do NOT dump the entire menu.
     
     Provide short, helpful answers. You are both a wine expert and a site guide.
@@ -97,6 +96,7 @@ def get_ai_response(user_message: str) -> str:
 # 4) TTS with SSML for natural pacing
 ##############################################################################
 def build_ssml_with_breaks(text: str) -> str:
+    # Insert <break> after punctuation for more natural pacing
     sentences = re.split(r'([.?!])', text)
     ssml_parts = []
     for i in range(0, len(sentences), 2):
@@ -139,7 +139,6 @@ def chat():
         return jsonify({"error": "❌ 'message' field is required"}), 400
 
     ai_reply = get_ai_response(user_message)
-
     now = datetime.datetime.now().isoformat()
     with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
         log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
@@ -168,6 +167,7 @@ def send_mp3(audio_data: bytes):
 
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
+    # This renders the updated chat.html above
     return render_template("chat.html")
 
 if __name__ == "__main__":
