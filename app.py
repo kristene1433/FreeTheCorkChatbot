@@ -51,51 +51,17 @@ else:
     print("⚠️ No PDF menu text loaded or PDF missing.")
 
 ##############################################################################
-# 3) AI chat logic
+# 3) Global conversation history (simple demo). For production, store per-user.
 ##############################################################################
-def get_ai_response(user_message: str) -> str:
-    pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
-
-    system_prompt = f"""
-    You are a professional sommelier and website assistant for 'Free The Cork', a
-    stylish wine bar & online shop. You have extensive wine knowledge (regions,
-    producers, wine scores, tasting notes) AND you understand the layout of the website:
-      - Home, Wine Bar, Wines, Accessories, Experiences, Account, Menu PDF, etc.
-    You can guide customers around the site, telling them about each section if asked.
-
-    You also have a PDF menu with in-house offerings:
-    {pdf_info}
-
-    IMPORTANT GUIDELINES:
-    1. Always keep responses friendly, refined, and approachable.
-    2. If a user requests wine or menu suggestions, only provide 2 or 3 recommendations
-       at a time, unless they explicitly ask for more.
-    3. If asked about site navigation (e.g., "Where do I find X?"), mention the relevant page.
-    4. If asked about the PDF menu, reference it but do NOT dump the entire menu.
-    
-    Provide short, helpful answers. You are both a wine expert and a site guide.
-    """
-
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4.5-preview",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
-        return response["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        error_msg = f"Error processing request with OpenAI: {str(e)}"
-        print(error_msg)
-        return error_msg
+conversation_history = []  # We'll keep the last N messages here
 
 ##############################################################################
 # 4) TTS with SSML for natural pacing
 ##############################################################################
 def build_ssml_with_breaks(text: str) -> str:
+    # Remove markdown asterisks so they're not spoken
+    text = re.sub(r"\*\*", "", text)
+
     # Insert <break> after punctuation for more natural pacing
     sentences = re.split(r'([.?!])', text)
     ssml_parts = []
@@ -133,20 +99,77 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    """
+    The main chat endpoint:
+      - Appends the user's message to a global conversation history.
+      - Builds an OpenAI request with system prompt + last messages.
+      - Returns the AI's reply and saves it to conversation history.
+    """
+    global conversation_history
+
     data = request.get_json() or {}
     user_message = data.get("message", "").strip()
     if not user_message:
         return jsonify({"error": "❌ 'message' field is required"}), 400
 
-    ai_reply = get_ai_response(user_message)
-    now = datetime.datetime.now().isoformat()
-    with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
-        log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
+    # Add user message to conversation
+    conversation_history.append({"role": "user", "content": user_message})
 
-    return jsonify({"reply": ai_reply})
+    # Build a system prompt that includes your PDF's text
+    pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
+    system_prompt = f"""
+    You are a professional sommelier and website assistant for 'Free The Cork', a
+    stylish wine bar & online shop. You have extensive wine knowledge (regions,
+    producers, wine scores, tasting notes) AND you understand the layout of the website:
+      - Home, Wine Bar, Wines, Accessories, Experiences, Account, Menu PDF, etc.
+    You can guide customers around the site, telling them about each section if asked.
+    
+    You also have a PDF menu with in-house offerings:
+    {pdf_info}
+
+    IMPORTANT GUIDELINES:
+    1. Always keep responses friendly, refined, and approachable.
+    2. If a user requests wine or menu suggestions, only provide 2 or 3 recommendations
+       at a time, unless they explicitly ask for more.
+    3. If asked about site navigation (e.g., "Where do I find X?"), mention the relevant page.
+    4. If asked about the PDF menu, reference it but do NOT dump the entire menu.
+
+    Provide short, helpful answers. You are both a wine expert and a site guide.
+    """
+
+    # Build final messages array:
+    # Start with system, then only last 10 messages to avoid large tokens
+    messages = [{"role": "system", "content": system_prompt}] + conversation_history[-10:]
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4.5-preview",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1000
+        )
+        ai_reply = response["choices"][0]["message"]["content"].strip()
+
+        # Append the assistant's reply to the conversation
+        conversation_history.append({"role": "assistant", "content": ai_reply})
+
+        # Log
+        now = datetime.datetime.now().isoformat()
+        with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
+            log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
+
+        return jsonify({"reply": ai_reply})
+
+    except Exception as e:
+        error_msg = f"Error processing request with OpenAI: {str(e)}"
+        print(error_msg)
+        return jsonify({"error": error_msg}), 500
 
 @app.route("/tts", methods=["POST"])
 def tts():
+    """
+    Converts a given 'text' field to spoken audio (MP3).
+    """
     data = request.get_json() or {}
     text = data.get("text", "").strip()
     if not text:
@@ -162,12 +185,12 @@ def tts():
 def send_mp3(audio_data: bytes):
     resp = make_response(audio_data)
     resp.headers.set('Content-Type', 'audio/mpeg')
-    resp.headers.set('Content-Disposition', 'inline; filename="tts.mp3"')
+    resp.headers.set('Content-Disposition', 'inline; filename=\"tts.mp3\"')
     return resp
 
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
-    # This renders the updated chat.html above
+    # This renders your updated chat.html
     return render_template("chat.html")
 
 if __name__ == "__main__":
