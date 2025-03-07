@@ -142,9 +142,12 @@ def chat():
     #    => We instruct the AI to produce easy-to-read text, no numeric bullets, fewer commas.
     pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
     system_prompt = f"""
-    You are a professional sommelier and website assistant for 'Free The Cork'.
-    You have extensive wine knowledge, plus the PDF menu:
+    You are a professional sommelier and website assistant for 'Free The Cork', a
+    stylish wine bar & online shop. You have extensive wine knowledge and
+    understand the layout of the website:
+    - Home, Wine Bar, Wines, Accessories, Experiences, Account, Menu PDF, etc.
 
+    You also have a PDF menu with in-house offerings:
     {pdf_info}
 
     ** GUIDELINES **
