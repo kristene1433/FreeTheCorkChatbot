@@ -1,4 +1,3 @@
-# app.py
 import os
 import openai
 import datetime
@@ -10,12 +9,9 @@ from google.cloud import texttospeech
 import io
 import re
 
+# If your scraper is in scraper.py, import it:
+from scraper import scrape_experiences  # <-- ensure you have this file
 
-from scraper import scrape_experiences  # <-- Our new scraper code
-
-##############################################################################
-# 1) Load environment variables & config
-##############################################################################
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -28,11 +24,12 @@ app = Flask(__name__, template_folder="templates")
 CORS(app)
 
 ##############################################################################
-# 2) PDF loading logic (like before)
+# PDF loading logic (if you have a PDF menu)
 ##############################################################################
 PDF_PATH = "MyMenu.pdf"
 
 def load_pdf_text(pdf_path):
+    """Loads text from a PDF file, if present."""
     if not os.path.isfile(pdf_path):
         print(f"PDF not found at {pdf_path}. Proceeding without menu text.")
         return None
@@ -55,19 +52,18 @@ else:
     print("⚠️ No PDF menu text loaded or PDF missing.")
 
 ##############################################################################
-# 3) Global conversation history & experiences data
-#    (For a multi-user production site, store these per-user or in a DB.)
+# Global conversation memory & experiences data
 ##############################################################################
 conversation_history = []
 EXPERIENCES_DATA = "No experiences data loaded yet."
 
 ##############################################################################
-# 4) TTS with SSML for natural pacing
+# TTS with SSML for natural pacing
 ##############################################################################
 def build_ssml_with_breaks(text: str) -> str:
-    # Remove double asterisks
+    # remove markdown bold, etc.
     text = re.sub(r"\*\*", "", text)
-
+    # Insert <break> after punctuation
     sentences = re.split(r'([.?!])', text)
     ssml_parts = []
     for i in range(0, len(sentences), 2):
@@ -85,9 +81,7 @@ def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes
         language_code="en-US",
         name=voice_name
     )
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3
-    )
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
     response = client.synthesize_speech(
         input=synthesis_input,
         voice=voice,
@@ -96,24 +90,22 @@ def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes
     return response.audio_content
 
 ##############################################################################
-# 5) Scrape experiences on startup (or a schedule)
+# Scraping function for experiences
 ##############################################################################
-@app.before_first_request
-def load_data():
+def load_experiences():
+    """Scrapes your 'experiences' page and updates EXPERIENCES_DATA."""
     global EXPERIENCES_DATA
-    # Example: scraping your "Experiences" page
-    # Adjust these to match your actual site & selectors
-    experiences_url = "http://192.168.4.62:3000/experiences"
-    experiences_selector = "div.event-item"  # or whatever
+    experiences_url = "http://192.168.4.62:3000/experiences"  # or your real site
+    css_selector = "div.event-item"  # adjust to match your site's HTML
     try:
-        events_text = scrape_experiences(experiences_url, experiences_selector)
+        events_text = scrape_experiences(experiences_url, css_selector)
         EXPERIENCES_DATA = events_text if events_text else "No experiences found on that page."
-        print("Loaded EXPERIENCES_DATA:\n", EXPERIENCES_DATA)
+        print("Loaded experiences:\n", EXPERIENCES_DATA)
     except Exception as e:
         print("Error scraping experiences:", e)
 
 ##############################################################################
-# 6) Routes
+# Routes
 ##############################################################################
 @app.route("/")
 def home():
@@ -121,10 +113,6 @@ def home():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    """
-    The main chat endpoint.
-    Uses conversation memory + PDF text + scraped experiences in the system prompt.
-    """
     global conversation_history, EXPERIENCES_DATA
 
     data = request.get_json() or {}
@@ -134,10 +122,8 @@ def chat():
 
     conversation_history.append({"role": "user", "content": user_message})
 
-    # PDF text
     pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
 
-    # Build system prompt
     system_prompt = f"""
     You are a professional sommelier and website assistant for 'Free The Cork'.
     You have:
@@ -150,10 +136,10 @@ def chat():
     IMPORTANT GUIDELINES:
     - Keep responses friendly, refined, and approachable.
     - If asked about experiences, reference the experiences above.
-    - Provide short, helpful answers. If asked for wine or menu suggestions, share only 2-3 at a time.
+    - Provide short, helpful answers. If asked for wine or menu suggestions,
+      share only 2-3 at a time.
     """
 
-    # Only keep last 10 messages to avoid large token usage
     messages = [{"role": "system", "content": system_prompt}] + conversation_history[-10:]
 
     try:
@@ -163,13 +149,10 @@ def chat():
             temperature=0.7,
             max_tokens=1000
         )
-
         ai_reply = response["choices"][0]["message"]["content"].strip()
 
-        # Add the assistant's reply to memory
         conversation_history.append({"role": "assistant", "content": ai_reply})
 
-        # Log
         now = datetime.datetime.now().isoformat()
         with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
             log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
@@ -183,14 +166,10 @@ def chat():
 
 @app.route("/tts", methods=["POST"])
 def tts():
-    """
-    Converts a given 'text' field to spoken audio (MP3).
-    """
     data = request.get_json() or {}
     text = data.get("text", "").strip()
     if not text:
         return jsonify({"error": "No text provided"}), 400
-
     try:
         ssml = build_ssml_with_breaks(text)
         audio_content = synthesize_speech_gcp_ssml(ssml)
@@ -206,9 +185,14 @@ def send_mp3(audio_data: bytes):
 
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
-    # Renders your updated chat.html (the front-end with black box, etc.)
     return render_template("chat.html")
 
+# ------------------------------------------------------------------------------
+# Replacing @app.before_first_request with a direct call at startup:
+# ------------------------------------------------------------------------------
+load_experiences()  # This will run once per worker on Heroku
+# ------------------------------------------------------------------------------
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(debug=False, host="0.0.0.0", port=port)
+    # If running locally, you can also run the app in debug mode here.
+    app.run(debug=True)
