@@ -6,4 +6,8 @@ gunicorn
 requests
 pdfplumber
 google-cloud-texttospeech
-playwright
+
+Flask==2.2.3
+playwright==1.35.0
+...
+
