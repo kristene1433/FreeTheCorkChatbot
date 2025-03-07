@@ -6,4 +6,4 @@ gunicorn
 requests
 pdfplumber
 google-cloud-texttospeech
-
+playwright

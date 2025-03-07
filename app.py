@@ -1,3 +1,4 @@
+# app.py
 import os
 import openai
 import datetime
@@ -8,6 +9,9 @@ from dotenv import load_dotenv
 from google.cloud import texttospeech
 import io
 import re
+
+
+from scraper import scrape_experiences  # <-- Our new scraper code
 
 ##############################################################################
 # 1) Load environment variables & config
@@ -24,7 +28,7 @@ app = Flask(__name__, template_folder="templates")
 CORS(app)
 
 ##############################################################################
-# 2) PDF loading logic (if you have a PDF menu)
+# 2) PDF loading logic (like before)
 ##############################################################################
 PDF_PATH = "MyMenu.pdf"
 
@@ -51,21 +55,19 @@ else:
     print("⚠️ No PDF menu text loaded or PDF missing.")
 
 ##############################################################################
-# 3) Global conversation history (simple demo). 
-#    For production, store per-user (session or database).
+# 3) Global conversation history & experiences data
+#    (For a multi-user production site, store these per-user or in a DB.)
 ##############################################################################
 conversation_history = []
+EXPERIENCES_DATA = "No experiences data loaded yet."
 
 ##############################################################################
-# 4) TTS with SSML for more natural pacing
+# 4) TTS with SSML for natural pacing
 ##############################################################################
 def build_ssml_with_breaks(text: str) -> str:
-    """
-    Convert plain text to SSML:
-    - Remove asterisks
-    - Insert breaks after punctuation
-    """
-    text = re.sub(r"\*\*", "", text)  # remove markdown bold
+    # Remove double asterisks
+    text = re.sub(r"\*\*", "", text)
+
     sentences = re.split(r'([.?!])', text)
     ssml_parts = []
     for i in range(0, len(sentences), 2):
@@ -94,25 +96,21 @@ def synthesize_speech_gcp_ssml(ssml: str, voice_name="en-US-Wavenet-F") -> bytes
     return response.audio_content
 
 ##############################################################################
-# 5) POST-PROCESSING HELPERS (to remove numeric bullets, reduce commas, etc.)
+# 5) Scrape experiences on startup (or a schedule)
 ##############################################################################
-def remove_numeric_bullets(text: str) -> str:
-    """
-    Strips lines beginning with "1) ", "1. ", "1)", etc.
-    Also merges repeated commas like ",," -> ","
-    """
-    lines = text.split('\n')
-    new_lines = []
-    for line in lines:
-        # Remove numeric bullet patterns at the start of each line
-        line = re.sub(r'^\d+[\).]\s*', '', line.strip())
-        new_lines.append(line)
-
-    # Merge them back
-    no_bullets = '\n'.join(new_lines)
-    # Replace repeated commas with a single comma
-    no_dbl_commas = re.sub(r',+', ',', no_bullets)
-    return no_dbl_commas.strip()
+@app.before_first_request
+def load_data():
+    global EXPERIENCES_DATA
+    # Example: scraping your "Experiences" page
+    # Adjust these to match your actual site & selectors
+    experiences_url = "http://192.168.4.62:3000/experiences"
+    experiences_selector = "div.event-item"  # or whatever
+    try:
+        events_text = scrape_experiences(experiences_url, experiences_selector)
+        EXPERIENCES_DATA = events_text if events_text else "No experiences found on that page."
+        print("Loaded EXPERIENCES_DATA:\n", EXPERIENCES_DATA)
+    except Exception as e:
+        print("Error scraping experiences:", e)
 
 ##############################################################################
 # 6) Routes
@@ -124,12 +122,10 @@ def home():
 @app.route("/chat", methods=["POST"])
 def chat():
     """
-    The main chat endpoint:
-      - Appends the user's message to a global conversation history
-      - Builds an OpenAI request with system prompt + last messages
-      - Returns the AI's reply (post-processed for readability)
+    The main chat endpoint.
+    Uses conversation memory + PDF text + scraped experiences in the system prompt.
     """
-    global conversation_history
+    global conversation_history, EXPERIENCES_DATA
 
     data = request.get_json() or {}
     user_message = data.get("message", "").strip()
@@ -138,28 +134,26 @@ def chat():
 
     conversation_history.append({"role": "user", "content": user_message})
 
-    # 1) Our system prompt with PDF info
-    #    => We instruct the AI to produce easy-to-read text, no numeric bullets, fewer commas.
+    # PDF text
     pdf_info = menu_pdf_text if menu_pdf_text else "(No PDF menu text available)"
+
+    # Build system prompt
     system_prompt = f"""
-    You are a professional sommelier and website assistant for 'Free The Cork', a
-    stylish wine bar & online shop. You have extensive wine knowledge and
-    understand the layout of the website:
-    - Home, Wine Bar, Wines, Accessories, Experiences, Account, Menu PDF, etc.
+    You are a professional sommelier and website assistant for 'Free The Cork'.
+    You have:
+      1) Extensive wine knowledge
+      2) A PDF menu with in-house offerings:
+         {pdf_info}
+      3) Updated experiences (events) info from the site:
+         {EXPERIENCES_DATA}
 
-    You also have a PDF menu with in-house offerings:
-    {pdf_info}
-
-    ** GUIDELINES **
-    1. Be friendly, refined, and approachable.
-    2. Provide only 2-3 suggestions unless user asks for more.
-    3. Avoid numeric bullet points. Use short lines or simple paragraphs instead.
-    4. Keep punctuation light. Use fewer commas and short sentences so it's easy to read and sounds natural for audio.
-    5. Provide concise, direct answers. Use line breaks or short paragraphs for lists.
-    6. If asked about the PDF menu, do not dump it entirely—just summarize or highlight relevant items.
+    IMPORTANT GUIDELINES:
+    - Keep responses friendly, refined, and approachable.
+    - If asked about experiences, reference the experiences above.
+    - Provide short, helpful answers. If asked for wine or menu suggestions, share only 2-3 at a time.
     """
 
-    # 2) Build final messages array with system + last 10 messages
+    # Only keep last 10 messages to avoid large token usage
     messages = [{"role": "system", "content": system_prompt}] + conversation_history[-10:]
 
     try:
@@ -169,15 +163,13 @@ def chat():
             temperature=0.7,
             max_tokens=1000
         )
-        raw_ai_reply = response["choices"][0]["message"]["content"].strip()
 
-        # 3) Post-processing: remove bullet points, repeated commas, etc.
-        ai_reply = remove_numeric_bullets(raw_ai_reply)
+        ai_reply = response["choices"][0]["message"]["content"].strip()
 
-        # 4) Save final AI reply to conversation
+        # Add the assistant's reply to memory
         conversation_history.append({"role": "assistant", "content": ai_reply})
 
-        # 5) Logging
+        # Log
         now = datetime.datetime.now().isoformat()
         with open("chat_logs.txt", "a", encoding="utf-8") as log_file:
             log_file.write(f"{now} - USER: {user_message} | AI: {ai_reply}\n")
@@ -193,8 +185,6 @@ def chat():
 def tts():
     """
     Converts a given 'text' field to spoken audio (MP3).
-    We'll rely on our post-processing in /chat to ensure
-    the text is already fairly clean for TTS.
     """
     data = request.get_json() or {}
     text = data.get("text", "").strip()
@@ -216,7 +206,7 @@ def send_mp3(audio_data: bytes):
 
 @app.route("/chatbot", methods=["GET"])
 def chatbot():
-    # Renders the updated chat.html 
+    # Renders your updated chat.html (the front-end with black box, etc.)
     return render_template("chat.html")
 
 if __name__ == "__main__":
