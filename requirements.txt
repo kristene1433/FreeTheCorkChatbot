@@ -7,7 +7,11 @@ requests
 pdfplumber
 google-cloud-texttospeech
 
-Flask==2.2.3
+
 playwright==1.35.0
+Flask==2.3.3
+Werkzeug
+gunicorn==20.1.0
+
 
 
